@@ -1,0 +1,19 @@
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+
+  font-family: sans-serif;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.status {
+  font-size: 12px;
+  color: #22c55e;
+}

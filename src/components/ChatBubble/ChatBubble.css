@@ -1,0 +1,112 @@
+
+/* chat bubble styles */
+.chat-bubble {
+  position: absolute;
+  bottom: 140px;
+  right: 100px;
+
+  width: 300px;
+  height: 400px;
+
+  background: white;
+  border-radius: 20px;
+
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+
+  animation: popIn 0.2s ease;
+}
+
+/* messages container styles */
+
+.messages-container {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.message {
+  padding: 10px 14px;
+  border-radius: 14px;
+  max-width: 75%;
+  font-family: sans-serif;
+}
+
+.message.user {
+  background: #dbeafe;
+  align-self: flex-end;
+}
+
+.message.ai {
+  background: #f3f4f6;
+  align-self: flex-start;
+}
+
+/* input container styles */
+
+.input-container {
+  display: flex;
+  padding: 10px;
+  gap: 8px;
+
+  border-top: 1px solid #eee;
+}
+
+.input-container input {
+  flex: 1;
+  padding: 10px;
+
+  border-radius: 10px;
+  border: 1px solid #ddd;
+
+  outline: none;
+}
+
+.input-container button {
+  border: none;
+  padding: 10px 14px;
+
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Typing indicator styles */
+
+.typing {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-family: sans-serif;
+  color: #666;
+}
+
+.dots::after {
+  content: "...";
+  display: inline-block;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0% { opacity: 0.2; }
+  50% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
