@@ -11,10 +11,7 @@ export type DooReply = {
   source: "llm" | "offline";
 };
 
-// Tries a real LLM reply first; falls back to the deterministic rule-based
-// responder if there's no API key configured or the request fails. This
-// means Doo always replies instantly and never shows an error to the user,
-// while still being "real AI" whenever a key is present.
+
 export async function generateDooReply(
   input: string,
   context: DooContext,

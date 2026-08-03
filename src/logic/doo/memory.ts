@@ -1,8 +1,4 @@
-// Persistent memory for Doo, backed by a real Rust command (see
-// src-tauri/src/lib.rs) that reads/writes a JSON file in the OS app-data
-// directory. This survives app restarts and lives outside the webview,
-// unlike localStorage -- the frontend just treats it as an async key-value
-// blob and lets Rust own the actual file I/O.
+
 
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTurn } from "../../hooks/services/groqService";

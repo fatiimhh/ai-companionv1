@@ -1,6 +1,4 @@
-// Thin client for Groq's chat completions API.
-// Returns null on any failure so callers can fall back to the offline
-// rule-based responder instead of crashing or showing an error to the user.
+
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL = "llama-3.1-8b-instant";

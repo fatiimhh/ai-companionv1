@@ -10,18 +10,18 @@ but not yet implemented.
 
 ## What's actually working
 
-- 🖥️ **Cross-platform desktop app** via [Tauri](https://tauri.app/) (Rust
+-  **Cross-platform desktop app** via [Tauri](https://tauri.app/) (Rust
   shell + React/TypeScript frontend) — small binary, native window, no
   Electron overhead.
-- 💬 **Real LLM-powered conversation** via the Groq API (Llama 3.1),
+-  **Real LLM-powered conversation** via the Groq API (Llama 3.1),
   with a deterministic offline fallback if no API key is set or the
   request fails, so the app never breaks or shows an error mid-chat.
-- 🧠 **Lightweight persistent memory** — Doo remembers your name (if you
+-  **Lightweight persistent memory** — Doo remembers your name (if you
   mention it) and your recent conversation across app restarts.
-- 😊 **Emotion system** — a rule-based mood/emotion detector reads your
+-  **Emotion system** — a rule-based mood/emotion detector reads your
   messages and drives both Doo's reply tone and its visual state
   (color, scale, animation speed).
-- 🎬 **Live animation loop** — Doo idles with a breathing motion and
+-  **Live animation loop** — Doo idles with a breathing motion and
   reacts to emotion changes in real time via `@react-three/fiber`.
   The current model is a placeholder box, not a rigged character yet
   (see Roadmap).
@@ -66,14 +66,14 @@ Without a key, Doo still works, using its offline keyword-based responses.
 
 Not built yet — listed here honestly rather than claimed as done:
 
-- 🎙️ Voice input and speech output
-- 🤖 A real rigged/animated 3D character model (current one is a placeholder box)
-- 👀 Cursor and user-interaction tracking
-- 🔔 Notifications and reminders
-- 📂 Desktop automation via custom Tauri/Rust commands
-- 🧠 Deeper memory (semantic recall, not just a rolling window)
+-  Voice input and speech output
+-  A real rigged/animated 3D character model (current one is a placeholder box)
+-  Cursor and user-interaction tracking
+-  Notifications and reminders
+-  Desktop automation via custom Tauri/Rust commands
+-  Deeper memory (semantic recall, not just a rolling window)
 
 ## Status
 
-🚧 Actively in development. Core chat + memory loop works end-to-end;
+ Actively in development. Core chat + memory loop works end-to-end;
 visual character and voice are the next milestones.

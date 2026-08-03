@@ -21,11 +21,7 @@ const TARGET_SCALE: Record<Emotion, number> = {
   curious: 1.2,
 };
 
-// NOTE: this is a placeholder box, not a rigged 3D model yet -- the CV/README
-// describe it honestly as such. What this component DOES demonstrate is a
-// real animation loop (idle bob + emotion-driven scale/rotation lerp) rather
-// than a static mesh, which is the actual foundation a rigged model would
-// plug into later.
+
 function Robot({ emotion }: Props) {
   const meshRef = useRef<Mesh>(null);
   const scaleRef = useRef(1);
