@@ -13,13 +13,13 @@
     "windows": [
       {
         "title": "AI Companion",
-        "width": 300,
-        "height": 300,
-         "decorations": false,
+        "width": 500,
+        "height": 500,
+         "decorations": true,
     "transparent": true,
     "alwaysOnTop": true,
-    "resizable": false,
-    "skipTaskbar": true
+    "resizable": true,
+    "skipTaskbar": false
       }
     ],
     "security": {
