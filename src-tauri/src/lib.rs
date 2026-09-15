@@ -2,11 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-// Doo's memory is stored as a single JSON blob on disk, in the OS-standard
-// per-app data directory (e.g. ~/.local/share/<app> on Linux,
-// ~/Library/Application Support/<app> on macOS, %APPDATA%\<app> on Windows).
-// Tauri resolves that path for us; the file itself is just opaque JSON as
-// far as Rust is concerned, so the frontend owns the actual shape.
+
 
 const MEMORY_FILE: &str = "doo-memory.json";
 const EMPTY_MEMORY: &str = r#"{"userName":null,"history":[]}"#;
