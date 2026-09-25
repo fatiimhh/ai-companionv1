@@ -5,6 +5,7 @@ import type { Emotion } from "../../logic/doo/types";
 
 type Props = {
   emotion: Emotion;
+  isTalking?: boolean;
 };
 
 const EMOTION_COLOR: Record<Emotion, string> = {
@@ -30,12 +31,15 @@ const EYE_OPENNESS: Record<Emotion, number> = {
   curious: 1.5,
 };
 
-function DooCharacter({ emotion }: Props) {
+function DooCharacter({ emotion, isTalking = false }: Props) {
   const groupRef = useRef<Group>(null);
   const leftEyeRef = useRef<Mesh>(null);
   const rightEyeRef = useRef<Mesh>(null);
   const antennaTipRef = useRef<Mesh>(null);
-
+  
+  const mouthRef = useRef<Mesh>(null);
+  const talkTimerRef = useRef(0);
+  
   const scaleRef = useRef(1);
   const blinkTimerRef = useRef(0);
   const nextBlinkAtRef = useRef(2 + Math.random() * 3);
@@ -75,6 +79,18 @@ function DooCharacter({ emotion }: Props) {
         nextBlinkAtRef.current = 2 + Math.random() * 3;
       }
     }
+
+  //  Mouth
+if (mouthRef.current) {
+  if (isTalking) {
+    talkTimerRef.current += delta * 10;
+    const talkOpen = 0.3 + Math.abs(Math.sin(talkTimerRef.current)) * 0.7;
+    mouthRef.current.scale.y = talkOpen;
+  } else {
+    // idle: small closed-mouth resting shape
+    mouthRef.current.scale.y += (0.25 - mouthRef.current.scale.y) * 0.1;
+  }
+}
 
     // triangle wave
     const blinkAmount =
