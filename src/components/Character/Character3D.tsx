@@ -1,5 +1,5 @@
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import type { Group, Mesh } from "three";
 import type { Emotion } from "../../logic/doo/types";
 
@@ -22,8 +22,6 @@ const TARGET_SCALE: Record<Emotion, number> = {
   curious: 1.2,
 };
 
-
-// 1 normal, below 1 squinting, above 1 wide open
 const EYE_OPENNESS: Record<Emotion, number> = {
   neutral: 1,
   playful: 1.15,
@@ -31,43 +29,81 @@ const EYE_OPENNESS: Record<Emotion, number> = {
   curious: 1.5,
 };
 
+const REACTION_DURATION = 0.5; 
+
 function DooCharacter({ emotion, isTalking = false }: Props) {
   const groupRef = useRef<Group>(null);
   const leftEyeRef = useRef<Mesh>(null);
   const rightEyeRef = useRef<Mesh>(null);
   const antennaTipRef = useRef<Mesh>(null);
-  
   const mouthRef = useRef<Mesh>(null);
-  const talkTimerRef = useRef(0);
-  
+
   const scaleRef = useRef(1);
   const blinkTimerRef = useRef(0);
   const nextBlinkAtRef = useRef(2 + Math.random() * 3);
   const blinkProgressRef = useRef(0);
+  const talkTimerRef = useRef(0);
+
+  //  Reaction trigger
+  const prevEmotionRef = useRef(emotion);
+  const reactionActiveRef = useRef(false);
+  const reactionTimeRef = useRef(0);
+
+  useEffect(() => {
+    if (prevEmotionRef.current !== emotion) {
+      reactionActiveRef.current = true;
+      reactionTimeRef.current = 0;
+      prevEmotionRef.current = emotion;
+    }
+  }, [emotion]);
 
   useFrame((state, delta) => {
     const group = groupRef.current;
     if (!group) return;
 
     // idle "breathing" bob
-    group.position.y = Math.sin(state.clock.elapsedTime * 1.5) * 0.08;
+    const idleBob = Math.sin(state.clock.elapsedTime * 1.5) * 0.08;
 
-    // gentle idle rotation, faster when curious/playful
+    // gentle idle rotation
     const spinSpeed = emotion === "curious" ? 0.6 : emotion === "playful" ? 0.4 : 0.15;
     group.rotation.y += spinSpeed * 0.01;
 
-    // smoothly lerp overall scale toward the target for the current emotion
+    
     const target = TARGET_SCALE[emotion];
     scaleRef.current += (target - scaleRef.current) * 0.08;
-    group.scale.setScalar(scaleRef.current);
+
+    // One-time reaction pulse on emotion change 
+    let reactionOffsetY = 0;
+    let reactionScaleBoost = 1;
+
+    if (reactionActiveRef.current) {
+      reactionTimeRef.current += delta;
+      const t = Math.min(reactionTimeRef.current / REACTION_DURATION, 1);
+      const pulse = Math.sin(t * Math.PI); // 0 -> 1 -> 0 shape
+
+      if (emotion === "playful") {
+        reactionOffsetY = pulse * 0.3; // quick upward hop
+      } else if (emotion === "teasing") {
+        reactionScaleBoost = 1 - pulse * 0.15; // brief recoil/shrink
+      } else if (emotion === "curious") {
+        reactionScaleBoost = 1 + pulse * 0.15; // quick perk-up pop
+      } else {
+        reactionOffsetY = -pulse * 0.1; // small settle-down
+      }
+
+      if (t >= 1) reactionActiveRef.current = false;
+    }
+
+    group.position.y = idleBob + reactionOffsetY;
+    group.scale.setScalar(scaleRef.current * reactionScaleBoost);
 
     // antenna tip gentle pulsing glow
     if (antennaTipRef.current) {
-      const pulse = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.1;
-      antennaTipRef.current.scale.setScalar(pulse);
+      const glowPulse = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.1;
+      antennaTipRef.current.scale.setScalar(glowPulse);
     }
 
-    //  Blinking 
+    //Blinking
     blinkTimerRef.current += delta;
     const BLINK_DURATION = 0.15;
 
@@ -80,19 +116,6 @@ function DooCharacter({ emotion, isTalking = false }: Props) {
       }
     }
 
-  //  Mouth
-if (mouthRef.current) {
-  if (isTalking) {
-    talkTimerRef.current += delta * 10;
-    const talkOpen = 0.3 + Math.abs(Math.sin(talkTimerRef.current)) * 0.7;
-    mouthRef.current.scale.y = talkOpen;
-  } else {
-    // idle: small closed-mouth resting shape
-    mouthRef.current.scale.y += (0.25 - mouthRef.current.scale.y) * 0.1;
-  }
-}
-
-    // triangle wave
     const blinkAmount =
       blinkProgressRef.current <= 0.5
         ? blinkProgressRef.current * 2
@@ -103,6 +126,17 @@ if (mouthRef.current) {
 
     if (leftEyeRef.current) leftEyeRef.current.scale.y = currentOpenness;
     if (rightEyeRef.current) rightEyeRef.current.scale.y = currentOpenness;
+
+    // Mouth
+    if (mouthRef.current) {
+      if (isTalking) {
+        talkTimerRef.current += delta * 10;
+        const talkOpen = 0.3 + Math.abs(Math.sin(talkTimerRef.current)) * 0.7;
+        mouthRef.current.scale.y = talkOpen;
+      } else {
+        mouthRef.current.scale.y += (0.25 - mouthRef.current.scale.y) * 0.1;
+      }
+    }
   });
 
   return (
@@ -123,7 +157,13 @@ if (mouthRef.current) {
         <meshStandardMaterial color="#1f2937" />
       </mesh>
 
-      {/* Antenna, glowing tip */}
+      {/* Mouth */}
+      <mesh ref={mouthRef} position={[0, -0.08, 0.56]} scale={[1, 0.25, 1]}>
+        <sphereGeometry args={[0.12, 16, 16]} />
+        <meshStandardMaterial color="#1f2937" />
+      </mesh>
+
+      {/* Antenna */}
       <mesh position={[0, 0.85, 0]}>
         <cylinderGeometry args={[0.02, 0.02, 0.35, 8]} />
         <meshStandardMaterial color="#4b5563" />
@@ -136,17 +176,11 @@ if (mouthRef.current) {
           emissiveIntensity={0.8}
         />
       </mesh>
-
-      {/* Mouth */}
-<mesh ref={mouthRef} position={[0, -0.08, 0.56]} scale={[1, 0.25, 1]}>
-  <sphereGeometry args={[0.12, 16, 16]} />
-  <meshStandardMaterial color="#1f2937" />
-</mesh>
     </group>
   );
 }
 
-export default function Character3D({ emotion, isTalking }: Props) {
+export default function Character3D({ emotion, isTalking = false }: Props) {
   return (
     <div style={{ width: "200px", height: "200px" }}>
       <Canvas camera={{ position: [0, 0, 3] }}>
