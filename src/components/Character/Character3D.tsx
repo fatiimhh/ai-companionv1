@@ -136,17 +136,23 @@ if (mouthRef.current) {
           emissiveIntensity={0.8}
         />
       </mesh>
+
+      {/* Mouth */}
+<mesh ref={mouthRef} position={[0, -0.08, 0.56]} scale={[1, 0.25, 1]}>
+  <sphereGeometry args={[0.12, 16, 16]} />
+  <meshStandardMaterial color="#1f2937" />
+</mesh>
     </group>
   );
 }
 
-export default function Character3D({ emotion }: Props) {
+export default function Character3D({ emotion, isTalking }: Props) {
   return (
     <div style={{ width: "200px", height: "200px" }}>
       <Canvas camera={{ position: [0, 0, 3] }}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[2, 2, 2]} intensity={1} />
-        <DooCharacter emotion={emotion} />
+        <DooCharacter emotion={emotion} isTalking={isTalking} />
       </Canvas>
     </div>
   );
