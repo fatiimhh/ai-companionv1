@@ -18,11 +18,13 @@ type MessageType = {
 type ChatBubbleProps = {
   emotion: Emotion;
   setEmotion: React.Dispatch<React.SetStateAction<Emotion>>;
+ setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
+
 };
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [] };
 
-function ChatBubble({ emotion, setEmotion }: ChatBubbleProps) {
+function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
@@ -77,10 +79,17 @@ function ChatBubble({ emotion, setEmotion }: ChatBubbleProps) {
     const historyForLLM: ChatTurn[] = memory.history;
     const result = await generateDooReply(userText, nextContext, historyForLLM);
 
+    // Update state with the AI's response and new context
     setMessages((prev) => [...prev, { text: result.response, sender: "ai" }]);
-    setContext(nextContext);
-    setEmotion(result.emotion);
-    setIsTyping(false);
+setContext(nextContext);
+setEmotion(result.emotion);
+setIsTyping(false);
+
+// Simulate talking and mouth movement for the duration of the response
+setIsTalking(true);
+const talkDuration = Math.min(4000, result.response.length * 50);
+setTimeout(() => setIsTalking(false), talkDuration);
+
 
     const updatedHistory: ChatTurn[] = [
       ...memory.history,
