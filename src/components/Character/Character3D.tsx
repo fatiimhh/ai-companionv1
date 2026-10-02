@@ -64,9 +64,10 @@ function DooCharacter({ emotion, isTalking = false }: Props) {
     // idle "breathing" bob
     const idleBob = Math.sin(state.clock.elapsedTime * 1.5) * 0.08;
 
-    // gentle idle rotation
-    const spinSpeed = emotion === "curious" ? 0.6 : emotion === "playful" ? 0.4 : 0.15;
-    group.rotation.y += spinSpeed * 0.01;
+    // gentle side-to-side sway 
+    const swayAmplitude = emotion === "curious" ? 0.25 : emotion === "playful" ? 0.2 : 0.1;
+    const swaySpeed = emotion === "curious" ? 1.2 : emotion === "playful" ? 1.0 : 0.6;
+    group.rotation.y = Math.sin(state.clock.elapsedTime * swaySpeed) * swayAmplitude;
 
     
     const target = TARGET_SCALE[emotion];
