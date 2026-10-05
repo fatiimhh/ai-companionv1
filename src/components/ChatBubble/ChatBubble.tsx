@@ -9,6 +9,8 @@ import { generateDooReply } from "../../logic/doo/personality";
 import type { Emotion, DooContext } from "../../logic/doo/types";
 import { loadMemory, saveMemory, extractName, type DooMemory } from "../../logic/doo/memory";
 import type { ChatTurn } from "../../hooks/services/groqService";
+import { transcribeAudio } from "../../hooks/services/groqAudioService";
+import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 
 type MessageType = {
   text: string;
@@ -18,8 +20,7 @@ type MessageType = {
 type ChatBubbleProps = {
   emotion: Emotion;
   setEmotion: React.Dispatch<React.SetStateAction<Emotion>>;
- setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
-
+  setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [] };
@@ -27,6 +28,7 @@ const FRESH_MEMORY: DooMemory = { userName: null, history: [] };
 function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,7 +38,6 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   ]);
   const [context, setContext] = useState<DooContext>({ lastMessages: [], messageCount: 0 });
 
-  // Load persisted memory (from disk, via Rust) once on mount.
   useEffect(() => {
     let cancelled = false;
     loadMemory().then((loaded) => {
@@ -60,12 +61,12 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  const handleSend = async () => {
-    if (!input.trim() || !memoryReady) return;
+  const handleSend = async (overrideText?: string) => {
+    const userText = overrideText ?? input;
+    if (!userText.trim() || !memoryReady) return;
 
-    const userText = input;
     setMessages((prev) => [...prev, { text: userText, sender: "user" }]);
-    setInput("");
+    if (!overrideText) setInput("");
     setIsTyping(true);
 
     const detectedName = extractName(userText);
@@ -79,17 +80,21 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     const historyForLLM: ChatTurn[] = memory.history;
     const result = await generateDooReply(userText, nextContext, historyForLLM);
 
-    // Update state with the AI's response and new context
     setMessages((prev) => [...prev, { text: result.response, sender: "ai" }]);
-setContext(nextContext);
-setEmotion(result.emotion);
-setIsTyping(false);
+    setContext(nextContext);
+    setEmotion(result.emotion);
+    setIsTyping(false);
 
-// Simulate talking and mouth movement for the duration of the response
-setIsTalking(true);
-const talkDuration = Math.min(4000, result.response.length * 50);
-setTimeout(() => setIsTalking(false), talkDuration);
-
+    // Speak the reply aloud, and sync the mouth animation to actual speech
+    
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(result.response);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.1;
+    utterance.onstart = () => setIsTalking(true);
+    utterance.onend = () => setIsTalking(false);
+    utterance.onerror = () => setIsTalking(false);
+    window.speechSynthesis.speak(utterance);
 
     const updatedHistory: ChatTurn[] = [
       ...memory.history,
@@ -100,6 +105,17 @@ setTimeout(() => setIsTalking(false), talkDuration);
     setMemory(updatedMemory);
     void saveMemory(updatedMemory);
   };
+
+  const handleRecordingComplete = async (blob: Blob) => {
+    setIsTranscribing(true);
+    const text = await transcribeAudio(blob);
+    setIsTranscribing(false);
+    if (text) {
+      void handleSend(text);
+    }
+  };
+
+  const { isRecording, toggleRecording } = useVoiceRecorder(handleRecordingComplete);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSend();
@@ -120,17 +136,27 @@ setTimeout(() => setIsTalking(false), talkDuration);
           </div>
         )}
 
+        {isTranscribing && <div className="typing">Listening...</div>}
+
         <div ref={messagesEndRef} />
       </div>
 
       <div className="input-container">
+        <button
+          type="button"
+          onClick={toggleRecording}
+          className={`mic-button ${isRecording ? "recording" : ""}`}
+          title={isRecording ? "Stop recording" : "Record a message"}
+        >
+          {isRecording ? "⏹" : "🎤"}
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Talk to Doo..."
         />
-        <button onClick={handleSend}>Send</button>
+        <button onClick={() => handleSend()}>Send</button>
       </div>
     </div>
   );
