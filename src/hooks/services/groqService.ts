@@ -1,7 +1,8 @@
 
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.1-8b-instant";
+const MODEL = "openai/gpt-oss-20b";
+
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -29,11 +30,12 @@ export async function getGroqReply(
         model: MODEL,
         messages: [
           { role: "system", content: DOO_SYSTEM_PROMPT },
-          ...history.slice(-8), // keep last few turns so replies stay in context
+          ...history.slice(-8), 
           { role: "user", content: userMessage },
         ],
         temperature: 0.9,
-        max_tokens: 120,
+        max_tokens: 600,
+        reasoning_effort: "low",
       }),
     });
 
@@ -44,8 +46,14 @@ export async function getGroqReply(
 
     const data = await response.json();
     const text: string | undefined = data?.choices?.[0]?.message?.content;
-    return text?.trim() || null;
-  } catch (err) {
+    
+    if (!text?.trim()) {
+     console.warn("Groq returned an empty reply:", data);
+    return null;
+    }
+    return text.trim();
+
+} catch (err) {
     console.warn("Groq request errored, falling back to offline replies:", err);
     return null;
   }
