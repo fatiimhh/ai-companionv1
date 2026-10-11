@@ -25,12 +25,38 @@ type ChatBubbleProps = {
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [] };
 
+
+// to clean up text for speech synthesis, removing emojis and extra whitespace
+function cleanForSpeech(text: string): string {
+  return text
+    .replace(
+      /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\uFE0F\u200D\u20E3]/gu,
+      ""
+    )
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+
+function pickVoice(): SpeechSynthesisVoice | null {
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return null;
+  const english = voices.filter((v) => v.lang.startsWith("en"));
+  return (
+    english.find((v) => v.localService) ??
+    voices.find((v) => v.localService) ??
+    null
+  );
+}
+
 function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const [memory, setMemory] = useState<DooMemory>(FRESH_MEMORY);
   const [messages, setMessages] = useState<MessageType[]>([
@@ -57,9 +83,15 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     };
   }, []);
 
+  
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+    const loadVoice = () => {
+      voiceRef.current = pickVoice();
+    };
+    loadVoice();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoice);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoice);
+  }, []);
 
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? input;
@@ -85,16 +117,27 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     setEmotion(result.emotion);
     setIsTyping(false);
 
-    // Speak the reply aloud, and sync the mouth animation to actual speech
     
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(result.response);
-    utterance.rate = 1.05;
-    utterance.pitch = 1.1;
-    utterance.onstart = () => setIsTalking(true);
-    utterance.onend = () => setIsTalking(false);
-    utterance.onerror = () => setIsTalking(false);
-    window.speechSynthesis.speak(utterance);
+    const spokenText = cleanForSpeech(result.response);
+    if (spokenText) {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+      const utterance = new SpeechSynthesisUtterance(spokenText);
+      if (voiceRef.current) utterance.voice = voiceRef.current;
+      utterance.rate = 1.05;
+      utterance.pitch = 1.1;
+
+      currentUtteranceRef.current = utterance; 
+     
+      const stopTalking = () => {      
+        if (currentUtteranceRef.current === utterance) setIsTalking(false);
+      };
+      utterance.onstart = () => setIsTalking(true);
+      utterance.onend = stopTalking;
+      utterance.onerror = stopTalking;
+      window.speechSynthesis.speak(utterance);
+    }
 
     const updatedHistory: ChatTurn[] = [
       ...memory.history,
@@ -117,6 +160,10 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
 
   const { isRecording, toggleRecording } = useVoiceRecorder(handleRecordingComplete);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping, isRecording, isTranscribing]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSend();
   };
@@ -130,13 +177,23 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
           <Message key={i} text={msg.text} sender={msg.sender} />
         ))}
 
+        {isRecording && (
+          <div className="typing">
+            Listening <span className="dots"></span>
+          </div>
+        )}
+
+        {isTranscribing && (
+          <div className="typing">
+            Transcribing <span className="dots"></span>
+          </div>
+        )}
+
         {isTyping && (
           <div className="typing">
             Doo is thinking <span className="dots">...</span>
           </div>
         )}
-
-        {isTranscribing && <div className="typing">Listening...</div>}
 
         <div ref={messagesEndRef} />
       </div>
