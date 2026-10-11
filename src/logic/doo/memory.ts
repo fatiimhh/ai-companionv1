@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTurn } from "../../hooks/services/groqService";
 
-const MAX_TURNS = 20;
+const MAX_TURNS = 100; 
 
 export type DooMemory = {
   userName: string | null;
@@ -46,7 +46,7 @@ export async function clearMemory(): Promise<void> {
   }
 }
 
-// Very small heuristic: "I'm X" / "my name is X" / "I am X"
+
 export function extractName(text: string): string | null {
   const match = text.match(/\b(?:i am|i'm|my name is)\s+([a-zA-Z]{2,20})\b/i);
   return match ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase() : null;
