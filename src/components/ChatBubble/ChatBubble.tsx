@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-
 import "./ChatBubble.css";
-
 import ChatHeader from "./ChatHeader";
 import Message from "./Message";
-
 import { generateDooReply } from "../../logic/doo/personality";
 import type { Emotion, DooContext } from "../../logic/doo/types";
 import { loadMemory, saveMemory, extractName, type DooMemory } from "../../logic/doo/memory";
 import type { ChatTurn } from "../../hooks/services/groqService";
 import { transcribeAudio } from "../../hooks/services/groqAudioService";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
+
+
 
 type MessageType = {
   text: string;
@@ -49,6 +48,8 @@ function pickVoice(): SpeechSynthesisVoice | null {
   );
 }
 
+let hasGreetedThisLaunch = false; // Track if Doo has greeted the user in this session
+
 function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -65,23 +66,41 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [context, setContext] = useState<DooContext>({ lastMessages: [], messageCount: 0 });
 
   useEffect(() => {
-    let cancelled = false;
-    loadMemory().then((loaded) => {
-      if (cancelled) return;
-      setMemory(loaded);
-      setContext({
-        lastMessages: loaded.history.map((h) => h.content),
-        messageCount: loaded.history.length,
-      });
-      if (loaded.userName) {
-        setMessages([{ text: `Hey ${loaded.userName}, I'm back. Miss me?`, sender: "ai" }]);
-      }
-      setMemoryReady(true);
+  let cancelled = false;
+  loadMemory().then((loaded) => {
+    if (cancelled) return;
+    setMemory(loaded);
+    setContext({
+      lastMessages: loaded.history.map((h) => h.content),
+      messageCount: loaded.history.length,
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+
+    // Restore chat messages from memory
+    const restored: MessageType[] = loaded.history.map((h) => ({ 
+      text: h.content,
+      sender: (h.role === "user" ? "user" : "ai") as MessageType["sender"],
+    }));
+
+    if (restored.length > 0) {
+      // If we have a stored userName and haven't greeted yet, add a greeting message
+      if (loaded.userName && !hasGreetedThisLaunch) {  
+        restored.push({
+          text: `Hey ${loaded.userName}, I'm back. Miss me?`,
+          sender: "ai",
+        });
+      }
+      setMessages(restored);
+    } else if (loaded.userName) {
+      setMessages([{ text: `Hey ${loaded.userName}, I'm back. Miss me?`, sender: "ai" }]);
+    }
+
+    hasGreetedThisLaunch = true;
+    setMemoryReady(true);
+  });
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   
   useEffect(() => {
