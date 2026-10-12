@@ -11,16 +11,16 @@ export type DooReply = {
   source: "llm" | "offline";
 };
 
-
 export async function generateDooReply(
   input: string,
   context: DooContext,
-  history: ChatTurn[] = []
+  history: ChatTurn[] = [],
+  facts: string[] = []
 ): Promise<DooReply> {
   const mood = detectMood(input, context);
   const emotion = detectEmotion(input, context.messageCount);
 
-  const llmReply = await getGroqReply(input, history);
+  const llmReply = await getGroqReply(input, history, facts);
 
   if (llmReply) {
     return { response: llmReply, mood, emotion, source: "llm" };
