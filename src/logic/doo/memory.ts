@@ -1,16 +1,15 @@
-
-
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatTurn } from "../../hooks/services/groqService";
 
-const MAX_TURNS = 100; 
+const MAX_TURNS = 100;
 
 export type DooMemory = {
   userName: string | null;
   history: ChatTurn[];
+  facts: string[];
 };
 
-const EMPTY_MEMORY: DooMemory = { userName: null, history: [] };
+const EMPTY_MEMORY: DooMemory = { userName: null, history: [], facts: [] };
 
 export async function loadMemory(): Promise<DooMemory> {
   try {
@@ -19,6 +18,7 @@ export async function loadMemory(): Promise<DooMemory> {
     return {
       userName: parsed.userName ?? null,
       history: Array.isArray(parsed.history) ? parsed.history : [],
+      facts: Array.isArray(parsed.facts) ? parsed.facts : [],
     };
   } catch (err) {
     console.warn("Could not load Doo memory, starting fresh:", err);
@@ -31,6 +31,7 @@ export async function saveMemory(memory: DooMemory): Promise<void> {
     const trimmed: DooMemory = {
       userName: memory.userName,
       history: memory.history.slice(-MAX_TURNS),
+      facts: memory.facts,
     };
     await invoke("save_memory", { data: JSON.stringify(trimmed) });
   } catch (err) {
