@@ -5,11 +5,9 @@ import Message from "./Message";
 import { generateDooReply } from "../../logic/doo/personality";
 import type { Emotion, DooContext } from "../../logic/doo/types";
 import { loadMemory, saveMemory, extractName, type DooMemory } from "../../logic/doo/memory";
-import type { ChatTurn } from "../../hooks/services/groqService";
+import { extractFacts, type ChatTurn } from "../../hooks/services/groqService";
 import { transcribeAudio } from "../../hooks/services/groqAudioService";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
-
-
 
 type MessageType = {
   text: string;
@@ -22,8 +20,7 @@ type ChatBubbleProps = {
   setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
-const FRESH_MEMORY: DooMemory = { userName: null, history: [] };
-
+const FRESH_MEMORY: DooMemory = { userName: null, history: [], facts: [] };
 
 // to clean up text for speech synthesis, removing emojis and extra whitespace
 function cleanForSpeech(text: string): string {
@@ -36,7 +33,6 @@ function cleanForSpeech(text: string): string {
     .trim();
 }
 
-
 function pickVoice(): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
   if (voices.length === 0) return null;
@@ -48,7 +44,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-let hasGreetedThisLaunch = false; // Track if Doo has greeted the user in this session
+let hasGreetedThisLaunch = false;
 
 function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const [input, setInput] = useState("");
@@ -59,50 +55,59 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
-  const [memory, setMemory] = useState<DooMemory>(FRESH_MEMORY);
+
+// Use a ref to hold the memory so we can read and update it without triggering re-renders  
+  const memoryRef = useRef<DooMemory>(FRESH_MEMORY);
+
   const [messages, setMessages] = useState<MessageType[]>([
     { text: "Hey I'm Doo. Try me", sender: "ai" },
   ]);
   const [context, setContext] = useState<DooContext>({ lastMessages: [], messageCount: 0 });
 
-  useEffect(() => {
-  let cancelled = false;
-  loadMemory().then((loaded) => {
-    if (cancelled) return;
-    setMemory(loaded);
-    setContext({
-      lastMessages: loaded.history.map((h) => h.content),
-      messageCount: loaded.history.length,
-    });
 
-    // Restore chat messages from memory
-    const restored: MessageType[] = loaded.history.map((h) => ({ 
-      text: h.content,
-      sender: (h.role === "user" ? "user" : "ai") as MessageType["sender"],
-    }));
-
-    if (restored.length > 0) {
-      // If we have a stored userName and haven't greeted yet, add a greeting message
-      if (loaded.userName && !hasGreetedThisLaunch) {  
-        restored.push({
-          text: `Hey ${loaded.userName}, I'm back. Miss me?`,
-          sender: "ai",
-        });
-      }
-      setMessages(restored);
-    } else if (loaded.userName) {
-      setMessages([{ text: `Hey ${loaded.userName}, I'm back. Miss me?`, sender: "ai" }]);
-    }
-
-    hasGreetedThisLaunch = true;
-    setMemoryReady(true);
-  });
-  return () => {
-    cancelled = true;
+// helper to update memory and persist it
+  const applyMemory = (next: DooMemory) => {
+    memoryRef.current = next;
+    void saveMemory(next);
   };
-}, []);
 
-  
+  useEffect(() => {
+    let cancelled = false;
+    loadMemory().then((loaded) => {
+      if (cancelled) return;
+      memoryRef.current = loaded;
+      setContext({
+        lastMessages: loaded.history.map((h) => h.content),
+        messageCount: loaded.history.length,
+      });
+
+      // Restore chat messages from memory
+      const restored: MessageType[] = loaded.history.map((h) => ({
+        text: h.content,
+        sender: (h.role === "user" ? "user" : "ai") as MessageType["sender"],
+      }));
+
+      if (restored.length > 0) {
+        // Only greet once per app launch, not on every popup open
+        if (loaded.userName && !hasGreetedThisLaunch) {
+          restored.push({
+            text: `Hey ${loaded.userName}, I'm back. Miss me?`,
+            sender: "ai",
+          });
+        }
+        setMessages(restored);
+      } else if (loaded.userName) {
+        setMessages([{ text: `Hey ${loaded.userName}, I'm back. Miss me?`, sender: "ai" }]);
+      }
+
+      hasGreetedThisLaunch = true;
+      setMemoryReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     const loadVoice = () => {
       voiceRef.current = pickVoice();
@@ -121,22 +126,21 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     setIsTyping(true);
 
     const detectedName = extractName(userText);
-    const nextUserName = memory.userName ?? detectedName;
 
     const nextContext: DooContext = {
       lastMessages: [...context.lastMessages, userText],
       messageCount: context.messageCount + 1,
     };
 
-    const historyForLLM: ChatTurn[] = memory.history;
-    const result = await generateDooReply(userText, nextContext, historyForLLM);
+    const before = memoryRef.current;
+    const historyForLLM: ChatTurn[] = before.history;
+    const result = await generateDooReply(userText, nextContext, historyForLLM, before.facts);
 
     setMessages((prev) => [...prev, { text: result.response, sender: "ai" }]);
     setContext(nextContext);
     setEmotion(result.emotion);
     setIsTyping(false);
 
-    
     const spokenText = cleanForSpeech(result.response);
     if (spokenText) {
       if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
@@ -147,9 +151,9 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
       utterance.rate = 1.05;
       utterance.pitch = 1.1;
 
-      currentUtteranceRef.current = utterance; 
-     
-      const stopTalking = () => {      
+      currentUtteranceRef.current = utterance;
+
+      const stopTalking = () => {
         if (currentUtteranceRef.current === utterance) setIsTalking(false);
       };
       utterance.onstart = () => setIsTalking(true);
@@ -158,14 +162,24 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
       window.speechSynthesis.speak(utterance);
     }
 
-    const updatedHistory: ChatTurn[] = [
-      ...memory.history,
-      { role: "user", content: userText },
-      { role: "assistant", content: result.response },
-    ];
-    const updatedMemory: DooMemory = { userName: nextUserName, history: updatedHistory };
-    setMemory(updatedMemory);
-    void saveMemory(updatedMemory);
+// Update memory with the new chat turns and detected name (if any)
+    const latest = memoryRef.current;
+    applyMemory({
+      ...latest,
+      userName: latest.userName ?? detectedName,
+      history: [
+        ...latest.history,
+        { role: "user", content: userText },
+        { role: "assistant", content: result.response },
+      ],
+    });
+
+// Extract any new facts from the user's message and update memory if needed
+    void extractFacts(userText, memoryRef.current.facts).then((newFacts) => {
+      if (!newFacts) return;
+      console.info("Doo facts updated:", newFacts);
+      applyMemory({ ...memoryRef.current, facts: newFacts });
+    });
   };
 
   const handleRecordingComplete = async (blob: Blob) => {
