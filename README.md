@@ -22,9 +22,15 @@ development. What's below is what's built and working today. See the
   speech synthesis (emojis are stripped so they aren't read out). Doo's
   mouth animation is synced to the actual start and end of speech.
 - **Persistent memory:** Doo remembers your name and your recent
-  conversation (last 20 messages) across restarts. Memory is stored as JSON
+  conversation (last 100 messages) across restarts, and the chat is
+  restored on screen whenever you reopen the popup. Memory is stored as JSON
   in the OS app-data directory through custom Rust commands
   (`load_memory`, `save_memory`, `clear_memory`).
+- **Long-term facts:** after each message, a background LLM call keeps an
+  up-to-date list of lasting facts about you (plans, deadlines, projects,
+  preferences). Time-sensitive facts are dated, contradicted facts are
+  replaced, and the list is capped at 25. It's injected into Doo's prompt
+  so it can bring things up naturally in later conversations.
 - **Emotion system:** a rule-based detector reads your messages and drives
   both Doo's reply tone and its visual state.
 - **Custom 3D character:** built entirely in code with
@@ -55,13 +61,11 @@ src/
     rules.ts          — keyword-based mood detection (offline fallback)
     responses.ts      — canned replies used by the offline fallback
     emotion.ts        — maps input -> Doo's visual emotion state
-    memory.ts         — loads/saves memory through the Tauri commands
-    types.ts          — shared types
+    memory.ts         — loads/saves name, chat history and facts via the Tauri commands    types.ts          — shared types
   hooks/
     useVoiceRecorder.ts   — click-to-record hook built on MediaRecorder
     services/
-      groqService.ts      — Groq chat-completions client
-      groqAudioService.ts — Groq Whisper transcription client
+      groqService.ts      — Groq chat client + background fact extraction      groqAudioService.ts — Groq Whisper transcription client
 src-tauri/
   src/lib.rs          — memory commands (JSON file in the OS app-data dir)
 ```
@@ -96,8 +100,12 @@ replies are still spoken, but voice input needs a key.
 - The API key is read on the client (`VITE_` variables are bundled into the
   frontend), which is fine for personal local use. A distributable version
   should route API calls through the Rust backend instead.
-- Memory is a rolling window plus the user's name, not semantic recall.
-- A browser-only build can be hosted on GitHub Pages, but memory
+- Memory is a rolling window of recent messages (100 saved, the last 8 sent
+  to the model) plus an LLM-maintained list of up to 25 facts. It isn't
+  embedding-based recall, and the fact list can occasionally miss details or
+  keep something outdated.
+- Saved memory (chat history and learned facts) is stored unencrypted on the
+  local machine, and the relevant parts are sent to Groq with each request.- A browser-only build can be hosted on GitHub Pages, but memory
   persistence only works in the desktop app.
 - Speech output quality depends on the voices installed on the OS.
 
@@ -107,7 +115,8 @@ Not built yet:
 
 - Final overlay window: small, transparent, borderless, always-on-top (it's
   currently developed in a larger bordered window)
-- Deeper memory (semantic recall of facts, not just recent history)
+- Smarter memory retrieval (embeddings, so only relevant facts are used
+  instead of the whole list)
 - Cursor and user-interaction tracking
 - Notifications and reminders
 - Desktop automation via custom Tauri/Rust commands
