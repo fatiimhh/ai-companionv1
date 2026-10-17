@@ -102,6 +102,25 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
     void saveMemory(next);
   };
 
+// Clear chat handler
+const handleClearChat = () => {
+  // stop any speech that's still playing
+  window.speechSynthesis.cancel();
+  setIsTalking(false);
+  setEmotion("neutral");
+
+  const name = memoryRef.current.userName;
+  setMessages([
+    { text: name ? `Fresh start, ${name}. What's up?` : "Fresh start. What's up?", sender: "ai" },
+  ]);
+  setContext({ lastMessages: [], messageCount: 0 });
+
+  // wipe the saved conversation, but keep the name and learned facts
+  applyMemory({ ...memoryRef.current, history: [] });
+};
+
+
+
   useEffect(() => {
     let cancelled = false;
     loadMemory().then((loaded) => {
@@ -234,7 +253,7 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
 
   return (
     <div className="chat-bubble">
-      <ChatHeader mood={emotion} />
+<ChatHeader mood={emotion} onClear={handleClearChat} disabled={isTyping} />
 
       <div className="messages-container">
         {messages.map((msg, i) => (
@@ -269,7 +288,7 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
           className={`mic-button ${isRecording ? "recording" : ""}`}
           title={isRecording ? "Stop recording" : "Record a message"}
         >
-          {isRecording ? "⏹" : "🎤"}
+          {isRecording ? <StopIcon /> : <MicIcon />}
         </button>
         <input
           value={input}
