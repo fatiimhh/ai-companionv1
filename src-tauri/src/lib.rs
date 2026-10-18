@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
+};
 
-
-
+// to store the memory in a file in the app data directory
 const MEMORY_FILE: &str = "doo-memory.json";
-const EMPTY_MEMORY: &str = r#"{"userName":null,"history":[]}"#;
+const EMPTY_MEMORY: &str = r#"{"userName":null,"history":[],"facts":[]}"#;
 
 fn memory_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -40,6 +43,15 @@ fn clear_memory(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// Show the main window, unminimized and focused, if it exists
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -51,7 +63,47 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            //  System tray, let it keep running with its window hidden 
+            let show_item = MenuItem::with_id(app, "show", "Show Doo", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Doo", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut tray = TrayIconBuilder::new()
+                .tooltip("Doo")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Left-click the tray icon to bring Doo back
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.build(app)?;
+
             Ok(())
+        })
+      
+        //  Prevent closing the window, instead hide it to the tray 
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![load_memory, save_memory, clear_memory])
         .run(tauri::generate_context!())
