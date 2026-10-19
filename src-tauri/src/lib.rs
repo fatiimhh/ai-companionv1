@@ -5,6 +5,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+mod reminders;
 
 // to store the memory in a file in the app data directory
 const MEMORY_FILE: &str = "doo-memory.json";
@@ -54,8 +55,11 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+        tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .manage(reminders::ReminderLock(std::sync::Mutex::new(())))
         .setup(|app| {
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -93,7 +97,9 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
-            tray.build(app)?;
+                        tray.build(app)?;
+
+            reminders::start_scheduler(app.handle().clone()); // start the background thread that checks for due reminders every 5 seconds
 
             Ok(())
         })
@@ -105,7 +111,14 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![load_memory, save_memory, clear_memory])
-        .run(tauri::generate_context!())
+        .invoke_handler(tauri::generate_handler![
+            load_memory,
+            save_memory,
+            clear_memory,
+            reminders::add_reminder,
+            reminders::list_reminders,
+            reminders::delete_reminder
+        ])
+                .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
