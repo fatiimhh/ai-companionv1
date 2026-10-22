@@ -5,9 +5,10 @@ import Message from "./Message";
 import { generateDooReply } from "../../logic/doo/personality";
 import type { Emotion, DooContext } from "../../logic/doo/types";
 import { loadMemory, saveMemory, extractName, type DooMemory } from "../../logic/doo/memory";
-import { extractFacts, type ChatTurn } from "../../hooks/services/groqService";
+import { extractFacts } from "../../hooks/services/groqService";
 import { transcribeAudio } from "../../hooks/services/groqAudioService";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
+import { handleReminderRequest, type Reminder } from "../../logic/doo/reminders";
 
 type MessageType = {
   text: string;
@@ -18,11 +19,13 @@ type ChatBubbleProps = {
   emotion: Emotion;
   setEmotion: React.Dispatch<React.SetStateAction<Emotion>>;
   setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
+  reminderQueue: Reminder[];
+  onReminderShown: (id: string) => void;
 };
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [], facts: [] };
 
-// to clean up text for speech synthesis, removing emojis and extra whitespace
+// to clean up text for speech synthesis
 function cleanForSpeech(text: string): string {
   return text
     .replace(
@@ -44,7 +47,6 @@ function pickVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-// Mic icon
 function MicIcon() {
   return (
     <svg
@@ -66,7 +68,6 @@ function MicIcon() {
   );
 }
 
-// stop recording icon
 function StopIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -77,7 +78,13 @@ function StopIcon() {
 
 let hasGreetedThisLaunch = false;
 
-function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
+function ChatBubble({
+  emotion,
+  setEmotion,
+  setIsTalking,
+  reminderQueue,
+  onReminderShown,
+}: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -85,9 +92,10 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const handledRemindersRef = useRef<Set<string>>(new Set());
 
-
-// Use a ref to hold the memory so we can read and update it without triggering re-renders  
+ 
+  // to keep track of the current memory state without triggering re-renders
   const memoryRef = useRef<DooMemory>(FRESH_MEMORY);
 
   const [messages, setMessages] = useState<MessageType[]>([
@@ -95,31 +103,50 @@ function ChatBubble({ emotion, setEmotion, setIsTalking }: ChatBubbleProps) {
   ]);
   const [context, setContext] = useState<DooContext>({ lastMessages: [], messageCount: 0 });
 
-
-// helper to update memory and persist it
+  // to update the memory and save it to localStorage
   const applyMemory = (next: DooMemory) => {
     memoryRef.current = next;
     void saveMemory(next);
   };
 
-// Clear chat handler
-const handleClearChat = () => {
-  // stop any speech that's still playing
-  window.speechSynthesis.cancel();
-  setIsTalking(false);
-  setEmotion("neutral");
+  // to speak text out loud using the browser's speech synthesis API
+  const speak = (text: string) => {
+    const spokenText = cleanForSpeech(text);
+    if (!spokenText) return;
 
-  const name = memoryRef.current.userName;
-  setMessages([
-    { text: name ? `Fresh start, ${name}. What's up?` : "Fresh start. What's up?", sender: "ai" },
-  ]);
-  setContext({ lastMessages: [], messageCount: 0 });
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel();
+    }
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    if (voiceRef.current) utterance.voice = voiceRef.current;
+    utterance.rate = 1.05;
+    utterance.pitch = 1.1;
 
-  // wipe the saved conversation, but keep the name and learned facts
-  applyMemory({ ...memoryRef.current, history: [] });
-};
+    currentUtteranceRef.current = utterance;
+    
+    const stopTalking = () => {     // when speech ends or errors stop talking
+      if (currentUtteranceRef.current === utterance) setIsTalking(false);
+    };
+    utterance.onstart = () => setIsTalking(true);
+    utterance.onend = stopTalking;
+    utterance.onerror = stopTalking;
+    window.speechSynthesis.speak(utterance);
+  };
 
+  const handleClearChat = () => {
+    window.speechSynthesis.cancel();  // stop any speech
+    setIsTalking(false);
+    setEmotion("neutral");
 
+    const name = memoryRef.current.userName;
+    setMessages([
+      { text: name ? `Fresh start, ${name}. What's up?` : "Fresh start. What's up?", sender: "ai" },
+    ]);
+    setContext({ lastMessages: [], messageCount: 0 });
+
+    // wipe the saved conversation but it keeps the name and learned facts
+    applyMemory({ ...memoryRef.current, history: [] });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +165,7 @@ const handleClearChat = () => {
       }));
 
       if (restored.length > 0) {
-        // Only greet once per app launch, not on every popup open
+        // Only greet once per app launch
         if (loaded.userName && !hasGreetedThisLaunch) {
           restored.push({
             text: `Hey ${loaded.userName}, I'm back. Miss me?`,
@@ -167,6 +194,32 @@ const handleClearChat = () => {
     return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoice);
   }, []);
 
+  // When a reminder comes due it shows it in the chat say it out loud then save it to history
+  useEffect(() => {
+    if (!memoryReady || reminderQueue.length === 0) return;
+
+    const reminder = reminderQueue[0];
+    if (handledRemindersRef.current.has(reminder.id)) {
+      onReminderShown(reminder.id);
+      return;
+    }
+    handledRemindersRef.current.add(reminder.id);
+
+    const text = `Reminder: ${reminder.text}`;
+    setMessages((prev) => [...prev, { text, sender: "ai" }]);
+    setEmotion("playful");
+    speak(text);
+
+    const latest = memoryRef.current;
+    applyMemory({
+      ...latest,
+      history: [...latest.history, { role: "assistant", content: text }],
+    });
+
+    onReminderShown(reminder.id);
+
+  }, [reminderQueue, memoryReady]);
+
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? input;
     if (!userText.trim() || !memoryReady) return;
@@ -183,36 +236,21 @@ const handleClearChat = () => {
     };
 
     const before = memoryRef.current;
-    const historyForLLM: ChatTurn[] = before.history;
-    const result = await generateDooReply(userText, nextContext, historyForLLM, before.facts);
+
+    // to handle a reminder request
+    const reminderReply = await handleReminderRequest(userText);
+    const result: { response: string; emotion: Emotion } = reminderReply
+      ? { response: reminderReply, emotion: "playful" }
+      : await generateDooReply(userText, nextContext, before.history, before.facts);
 
     setMessages((prev) => [...prev, { text: result.response, sender: "ai" }]);
     setContext(nextContext);
     setEmotion(result.emotion);
     setIsTyping(false);
 
-    const spokenText = cleanForSpeech(result.response);
-    if (spokenText) {
-      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-      }
-      const utterance = new SpeechSynthesisUtterance(spokenText);
-      if (voiceRef.current) utterance.voice = voiceRef.current;
-      utterance.rate = 1.05;
-      utterance.pitch = 1.1;
+    speak(result.response);
 
-      currentUtteranceRef.current = utterance;
-
-      const stopTalking = () => {
-        if (currentUtteranceRef.current === utterance) setIsTalking(false);
-      };
-      utterance.onstart = () => setIsTalking(true);
-      utterance.onend = stopTalking;
-      utterance.onerror = stopTalking;
-      window.speechSynthesis.speak(utterance);
-    }
-
-// Update memory with the new chat turns and detected name (if any)
+    // Save the new exchange right away 
     const latest = memoryRef.current;
     applyMemory({
       ...latest,
@@ -224,7 +262,7 @@ const handleClearChat = () => {
       ],
     });
 
-// Extract any new facts from the user's message and update memory if needed
+    // Learn lasting facts in the background so replies aren't slowed down
     void extractFacts(userText, memoryRef.current.facts).then((newFacts) => {
       if (!newFacts) return;
       console.info("Doo facts updated:", newFacts);
@@ -253,7 +291,7 @@ const handleClearChat = () => {
 
   return (
     <div className="chat-bubble">
-<ChatHeader mood={emotion} onClear={handleClearChat} disabled={isTyping} />
+      <ChatHeader mood={emotion} onClear={handleClearChat} disabled={isTyping} />
 
       <div className="messages-container">
         {messages.map((msg, i) => (
@@ -287,6 +325,7 @@ const handleClearChat = () => {
           onClick={toggleRecording}
           className={`mic-button ${isRecording ? "recording" : ""}`}
           title={isRecording ? "Stop recording" : "Record a message"}
+          aria-label={isRecording ? "Stop recording" : "Record a message"}
         >
           {isRecording ? <StopIcon /> : <MicIcon />}
         </button>
