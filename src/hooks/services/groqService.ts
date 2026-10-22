@@ -133,3 +133,79 @@ Rules:
     return null;
   }
 }
+
+
+// to extract a reminder from a user message, returning the text and an exact time in ms
+export type ParsedReminder = { text: string; dueMs: number };
+
+
+export async function parseReminder(userMessage: string): Promise<ParsedReminder | null> {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) return null;
+
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+
+  const prompt = `You turn a reminder request into JSON.
+The user's current local date and time is ${localNow} (${weekday}).
+
+Request: "${userMessage}"
+
+Return only a JSON object like {"text": "Study for your exam", "in_minutes": 10, "at": null}:
+- "text": the thing to be reminded about, as a short phrase without "remind me" (for example "Study for your exam"). Use normal capitalization.
+- "in_minutes": a number if the request is relative to now ("in 10 minutes" = 10, "in 2 hours" = 120), otherwise null.
+- "at": for a specific day or time, the user's LOCAL time as "YYYY-MM-DDTHH:mm" in 24-hour format, otherwise null. If only a clock time is given and it has already passed today, use tomorrow. When no exact time is given: morning = 09:00, afternoon = 15:00, evening = 19:00, tonight = 21:00.
+- Set exactly one of "in_minutes" or "at".
+- If there is no usable time, or no clear thing to remember, return {"text": null, "in_minutes": null, "at": null}.`;
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0,
+        max_tokens: 800,
+        reasoning_effort: "low",
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn("Reminder parsing failed:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const raw: string = data?.choices?.[0]?.message?.content ?? "";
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+
+    const parsed = JSON.parse(match[0]);
+    const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+    if (!text) return null;
+
+    let dueMs: number | null = null;
+    if (typeof parsed.in_minutes === "number" && parsed.in_minutes > 0) {
+      dueMs = Date.now() + parsed.in_minutes * 60_000;
+    } else if (typeof parsed.at === "string") {
+      const t = new Date(parsed.at).getTime(); // parse as local time
+      if (Number.isFinite(t)) dueMs = t;
+    }
+    if (dueMs === null) return null;
+
+    
+    const nowMs = Date.now();
+    if (dueMs < nowMs - 30_000 || dueMs > nowMs + 365 * 24 * 3600 * 1000) return null;
+
+    return { text, dueMs: Math.max(dueMs, nowMs + 1000) };
+  } catch (err) {
+    console.warn("Reminder parsing errored:", err);
+    return null;
+  }
+}
