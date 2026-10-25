@@ -4,8 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: "/ai-companionv1/",
-
+  base: process.env.TAURI_ENV_PLATFORM ? "/" : "/ai-companionv1/", // to support both Tauri and web builds
    server: {
     port: 5173,
     strictPort: true,
