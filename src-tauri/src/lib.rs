@@ -6,6 +6,7 @@ use tauri::{
     Manager, WindowEvent,
 };
 mod reminders;
+mod groq;
 
 // to store the memory in a file in the app data directory
 const MEMORY_FILE: &str = "doo-memory.json";
@@ -117,7 +118,11 @@ pub fn run() {
             clear_memory,
             reminders::add_reminder,
             reminders::list_reminders,
-            reminders::delete_reminder
+            reminders::delete_reminder,
+            groq::has_api_key,
+            groq::set_api_key,
+            groq::groq_chat,
+            groq::groq_transcribe
         ])
                 .run(tauri::generate_context!())
         .expect("error while running tauri application");
