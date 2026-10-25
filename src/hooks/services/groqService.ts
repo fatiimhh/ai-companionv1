@@ -1,8 +1,11 @@
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+import { invoke } from "@tauri-apps/api/core";
+
 const MODEL = "openai/gpt-oss-20b";
 const MAX_FACTS = 25;
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+type GroqResponse = { choices?: { message?: { content?: string } }[] };
 
 const DOO_SYSTEM_PROMPT = `You are Doo, a small, witty AI desktop companion that lives on the user's screen.
 Personality: playful, a little teasing, genuinely supportive underneath the sarcasm. You notice
@@ -19,59 +22,51 @@ ${facts.map((f) => `- ${f}`).join("\n")}
 Bring these up naturally and only when relevant, like a friend would. Don't recite them as a list unless the user asks what you remember.`;
 }
 
+
+
+async function callGroqChat(body: Record<string, unknown>): Promise<GroqResponse | null> {
+  if (!("__TAURI_INTERNALS__" in window)) return null;
+  try {
+    const raw = await invoke<string>("groq_chat", { body: JSON.stringify(body) });
+    return JSON.parse(raw) as GroqResponse;
+  } catch (err) {
+    if (!String(err).includes("NO_API_KEY")) console.warn("Groq request failed:", err);
+    return null;
+  }
+}
+
 export async function getGroqReply(
   userMessage: string,
   history: ChatTurn[],
   facts: string[] = []
 ): Promise<string | null> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) return null;
+  const data = await callGroqChat({
+    model: MODEL,
+    messages: [
+      { role: "system", content: buildSystemPrompt(facts) },
+      ...history.slice(-8),
+      { role: "user", content: userMessage },
+    ],
+    temperature: 0.9,
+    max_tokens: 600,
+    reasoning_effort: "low",
+  });
+  if (!data) return null;
 
-  try {
-    const response = await fetch(GROQ_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: buildSystemPrompt(facts) },
-          ...history.slice(-8),
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.9,
-        max_tokens: 600,
-        reasoning_effort: "low",
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn("Groq request failed:", response.status, await response.text());
-      return null;
-    }
-
-    const data = await response.json();
-    const text: string | undefined = data?.choices?.[0]?.message?.content;
-    if (!text?.trim()) {
-      console.warn("Groq returned an empty reply:", data);
-      return null;
-    }
-    return text.trim();
-  } catch (err) {
-    console.warn("Groq request errored, falling back to offline replies:", err);
+  const text = data.choices?.[0]?.message?.content;
+  if (!text?.trim()) {
+    console.warn("Groq returned an empty reply:", data);
     return null;
   }
+  return text.trim();
 }
 
-// to extract facts from user messages and update the memory
-export async function extractFacts( 
+
+// to extract lasting facts from a user message, like plans, deadlines, goals...
+export async function extractFacts(
   userMessage: string,
   existingFacts: string[]
 ): Promise<string[] | null> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) return null;
   if (userMessage.trim().length < 12) return null; // skip "hi", "ok", etc.
 
   const today = new Date().toISOString().slice(0, 10);
@@ -92,29 +87,17 @@ Rules:
 - Keep each fact under 15 words and keep at most ${MAX_FACTS} facts.
 - If nothing changes, return the current list unchanged.`;
 
+  const data = await callGroqChat({
+    model: MODEL,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.2,
+    max_tokens: 800,
+    reasoning_effort: "low",
+  });
+  if (!data) return null;
+
   try {
-    const response = await fetch(GROQ_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 800,
-        reasoning_effort: "low",
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn("Fact extraction failed:", response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    const text: string = data?.choices?.[0]?.message?.content ?? "";
+    const text = data.choices?.[0]?.message?.content ?? "";
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) return null;
 
@@ -126,23 +109,19 @@ Rules:
       .map((f) => f.trim())
       .slice(-MAX_FACTS);
 
-    
-    return cleaned.length > 0 ? cleaned : null;
+// return null if the list is unchanged, otherwise return the new list
+      return cleaned.length > 0 ? cleaned : null;
   } catch (err) {
     console.warn("Fact extraction errored:", err);
     return null;
   }
 }
 
-
-// to extract a reminder from a user message, returning the text and an exact time in ms
 export type ParsedReminder = { text: string; dueMs: number };
 
 
+// asks the model to parse a reminder request into a short text and a due time
 export async function parseReminder(userMessage: string): Promise<ParsedReminder | null> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) return null;
-
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -160,29 +139,17 @@ Return only a JSON object like {"text": "Study for your exam", "in_minutes": 10,
 - Set exactly one of "in_minutes" or "at".
 - If there is no usable time, or no clear thing to remember, return {"text": null, "in_minutes": null, "at": null}.`;
 
+  const data = await callGroqChat({
+    model: MODEL,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0,
+    max_tokens: 800,
+    reasoning_effort: "low",
+  });
+  if (!data) return null;
+
   try {
-    const response = await fetch(GROQ_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0,
-        max_tokens: 800,
-        reasoning_effort: "low",
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn("Reminder parsing failed:", response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    const raw: string = data?.choices?.[0]?.message?.content ?? "";
+    const raw = data.choices?.[0]?.message?.content ?? "";
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
 
@@ -194,12 +161,12 @@ Return only a JSON object like {"text": "Study for your exam", "in_minutes": 10,
     if (typeof parsed.in_minutes === "number" && parsed.in_minutes > 0) {
       dueMs = Date.now() + parsed.in_minutes * 60_000;
     } else if (typeof parsed.at === "string") {
-      const t = new Date(parsed.at).getTime(); // parse as local time
+      const t = new Date(parsed.at).getTime(); // no timezone in the string = local time
       if (Number.isFinite(t)) dueMs = t;
     }
     if (dueMs === null) return null;
 
-    
+    // to avoid reminders in the past or more than a year in the future
     const nowMs = Date.now();
     if (dueMs < nowMs - 30_000 || dueMs > nowMs + 365 * 24 * 3600 * 1000) return null;
 
