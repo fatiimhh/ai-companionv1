@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import "./ChatBubble.css";
+import { invoke } from "@tauri-apps/api/core";
 import ChatHeader from "./ChatHeader";
 import Message from "./Message";
 import { generateDooReply } from "../../logic/doo/personality";
@@ -93,6 +94,9 @@ function ChatBubble({
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const handledRemindersRef = useRef<Set<string>>(new Set());
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keyInput, setKeyInput] = useState(""); // to hold the API key input from the user
+  const [keyError, setKeyError] = useState<string | null>(null);
 
  
   // to keep track of the current memory state without triggering re-renders
@@ -289,6 +293,28 @@ function ChatBubble({
     if (e.key === "Enter") handleSend();
   };
 
+  // Check if the API key is set in the backend when the component mounts
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return; // browser demo, no backend
+    invoke<boolean>("has_api_key")
+     .then(setHasKey)
+      .catch(() => setHasKey(null));
+              }, []);
+
+
+  // to handle saving the API key
+  const handleSaveKey = async () => {
+  setKeyError(null);
+  try {
+    await invoke("set_api_key", { key: keyInput });
+    setKeyInput("");
+    setHasKey(true);
+    setMessages((prev) => [...prev, { text: "Key saved. I'm properly awake now.", sender: "ai" }]);
+  } catch (err) {
+    setKeyError(String(err));
+  }
+};            
+
   return (
     <div className="chat-bubble">
       <ChatHeader mood={emotion} onClear={handleClearChat} disabled={isTyping} />
@@ -318,6 +344,24 @@ function ChatBubble({
 
         <div ref={messagesEndRef} />
       </div>
+
+    {/* API Key Banner */}
+    {hasKey === false && (
+  <div className="key-banner">
+      <p>I'm on basic canned replies. Paste a free Groq key (from console.groq.com) to unlock the real me.</p>
+      <div className="key-row">
+        <input
+          type="password"
+          value={keyInput}
+          onChange={(e) => setKeyInput(e.target.value)}
+          placeholder="gsk_..."
+           />
+           <button type="button" onClick={handleSaveKey}>Save</button>
+         </div>
+          {keyError && <p className="key-error">{keyError}</p>}
+       </div>
+              )}
+
 
       <div className="input-container">
         <button
