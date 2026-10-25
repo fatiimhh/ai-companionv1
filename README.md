@@ -39,6 +39,20 @@ development. What's below is what's built and working today. See the
   timer and open or squint per emotion. A mouth moves while Doo speaks, a
   gentle sway and breathing bob run while idle, and each emotion change
   triggers a short reaction (a hop, a flinch, a perk-up).
+  - **Reminders that survive closing the window:** say "remind me tomorrow at
+  9 to study" or "remind me in 10 minutes to stretch" and the LLM turns it
+  into an exact time. Reminders are saved to disk and checked every few
+  seconds by a scheduler in the Rust backend, which sends a native Windows
+  notification, and Doo also opens the chat and says it out loud. Reminders
+  that came due while Doo was fully closed show up as "missed" on the next
+  launch.
+- **Runs in the background:** closing the window hides Doo to the system
+  tray instead of quitting, so reminders keep working. The tray menu has
+  "Show Doo" and "Quit Doo".
+- **Chat controls:** a clear-chat button (with a confirm step) wipes the
+  conversation but keeps the learned long-term facts.
+- **Installable:** `npm run tauri build` produces a Windows installer
+  (NSIS).
 
 ## Tech stack
 
@@ -48,6 +62,8 @@ development. What's below is what's built and working today. See the
 - **AI:** Groq API (chat completions + Whisper transcription), with a local
   rule-based fallback
 - **Voice:** `MediaRecorder` (input), Web Speech `speechSynthesis` (output)
+- **Notifications and background tasks:** `tauri-plugin-notification`,
+  system tray, a Rust scheduler thread
 
 ## Architecture
 
@@ -61,13 +77,15 @@ src/
     rules.ts          — keyword-based mood detection (offline fallback)
     responses.ts      — canned replies used by the offline fallback
     emotion.ts        — maps input -> Doo's visual emotion state
-    memory.ts         — loads/saves name, chat history and facts via the Tauri commands    types.ts          — shared types
+    memory.ts         — loads/saves name, chat history and facts via the Tauri commands
+    reminders.ts      — detects "remind me..." requests, parses them, saves via Rust   types.ts          — shared types
   hooks/
     useVoiceRecorder.ts   — click-to-record hook built on MediaRecorder
     services/
       groqService.ts      — Groq chat client + background fact extraction      groqAudioService.ts — Groq Whisper transcription client
 src-tauri/
-  src/lib.rs          — memory commands (JSON file in the OS app-data dir)
+  src/lib.rs          — memory commands, system tray, hide-on-close
+  src/reminders.rs    — reminder storage, background scheduler, notifications
 ```
 
 ## Running it locally
@@ -115,12 +133,12 @@ Not built yet:
 
 - Final overlay window: small, transparent, borderless, always-on-top (it's
   currently developed in a larger bordered window)
+- Move API calls behind the Rust backend so no key ships in the frontend
+- Start automatically with Windows
 - Smarter memory retrieval (embeddings, so only relevant facts are used
   instead of the whole list)
 - Cursor and user-interaction tracking
-- Notifications and reminders
 - Desktop automation via custom Tauri/Rust commands
-- Move API calls behind the Rust backend so no key ships in the frontend
 
 ## Status
 
