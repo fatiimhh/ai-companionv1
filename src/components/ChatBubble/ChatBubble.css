@@ -145,4 +145,41 @@
 }
 
 
+/* API Key Banner Styles */
+.key-banner {
+  padding: 10px;
+  border-top: 1px solid #eee;
+  background: #fffbeb;
+  font-family: sans-serif;
+  font-size: 12px;
+  color: #92400e;
+}
 
+.key-banner p {
+  margin: 0 0 6px 0;
+}
+
+.key-row {
+  display: flex;
+  gap: 6px;
+}
+
+.key-row input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.key-row button {
+  border: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.key-banner .key-error {
+  color: #b91c1c;
+  margin: 6px 0 0 0;
+}
