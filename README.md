@@ -39,7 +39,7 @@ development. What's below is what's built and working today. See the
   timer and open or squint per emotion. A mouth moves while Doo speaks, a
   gentle sway and breathing bob run while idle, and each emotion change
   triggers a short reaction (a hop, a flinch, a perk-up).
-  - **Reminders that survive closing the window:** say "remind me tomorrow at
+- **Reminders that survive closing the window:** say "remind me tomorrow at
   9 to study" or "remind me in 10 minutes to stretch" and the LLM turns it
   into an exact time. Reminders are saved to disk and checked every few
   seconds by a scheduler in the Rust backend, which sends a native Windows
