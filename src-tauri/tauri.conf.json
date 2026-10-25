@@ -2,10 +2,10 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ai-companion",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.fatimh.doo",
   "build": {
-    "frontendDist": "../build",
-    "devUrl": "http://localhost:5173/ai-companionv1/",
+  "frontendDist": "../dist",
+  "devUrl": "http://localhost:5173/",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
