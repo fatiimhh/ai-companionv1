@@ -91,14 +91,26 @@ pub async fn groq_chat(app: AppHandle, body: String) -> Result<String, String> {
     Ok(text)
 }
 
-// Forwards an audio transcription request to Groq and returns the raw response
+// makes a transcription request to Groq and returns the raw response
 #[tauri::command]
-pub async fn groq_transcribe(app: AppHandle, audio: Vec<u8>) -> Result<String, String> {
+pub async fn groq_transcribe(app: AppHandle, audio: Vec<u8>, mime: String) -> Result<String, String> {
     let key = resolve_key(&app).ok_or_else(|| NO_KEY.to_string())?;
 
+
+// Windows records WebM; macOS (Safari/WebKit) records MP4
+    let (file_name, mime_type) = if mime.contains("mp4") || mime.contains("aac") {
+        ("recording.mp4", "audio/mp4")
+    } else if mime.contains("ogg") {
+        ("recording.ogg", "audio/ogg")
+    } else if mime.contains("wav") {
+        ("recording.wav", "audio/wav")
+    } else {
+        ("recording.webm", "audio/webm")
+    };
+
     let part = reqwest::multipart::Part::bytes(audio)
-        .file_name("recording.webm")
-        .mime_str("audio/webm")
+        .file_name(file_name)
+        .mime_str(mime_type)
         .map_err(|e| format!("invalid audio type: {e}"))?;
     let form = reqwest::multipart::Form::new()
         .part("file", part)
