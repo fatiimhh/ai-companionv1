@@ -16,7 +16,7 @@ export function useVoiceRecorder(onRecordingComplete: (blob: Blob) => void) {
       };
 
       recorder.onstop = () => {
-const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }); // for compatibility with browsers that don't support mimeType
+    const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }); // for compatibility with browsers that don't support mimeType
         onRecordingComplete(blob);
         stream.getTracks().forEach((track) => track.stop());
       };
