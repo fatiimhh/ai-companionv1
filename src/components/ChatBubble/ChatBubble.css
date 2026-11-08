@@ -183,3 +183,16 @@
   color: #b91c1c;
   margin: 6px 0 0 0;
 }
+
+
+/* Hands-free mic button styles */
+.mic-button.handsfree {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+
+.mic-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
