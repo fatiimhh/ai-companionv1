@@ -10,6 +10,7 @@ function App() {
   const [emotion, setEmotion] = useState<Emotion>("neutral");
   const [isTalking, setIsTalking] = useState(false);
   const [reminderQueue, setReminderQueue] = useState<Reminder[]>([]);
+  const [isListening, setIsListening] = useState(false);
 
 
 // Listen for reminders from the Rust backend and add them to the queue
@@ -61,11 +62,14 @@ function App() {
           onReminderShown={(id) =>
             setReminderQueue((queue) => queue.filter((r) => r.id !== id))
           }
+          setIsListening={setIsListening}
         />
       )}
 
       <div onClick={handleCharacterClick}>
-        <Character3D emotion={emotion} isTalking={isTalking} />
+        <Character3D emotion={emotion} isTalking={isTalking} 
+        isListening={isListening}
+        />
       </div>
     </div>
   );
