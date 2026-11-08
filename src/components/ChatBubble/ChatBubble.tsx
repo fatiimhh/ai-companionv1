@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import "./ChatBubble.css";
 import { invoke } from "@tauri-apps/api/core";
+import "./ChatBubble.css";
 import ChatHeader from "./ChatHeader";
 import Message from "./Message";
 import { generateDooReply } from "../../logic/doo/personality";
@@ -9,6 +9,7 @@ import { loadMemory, saveMemory, extractName, type DooMemory } from "../../logic
 import { extractFacts } from "../../hooks/services/groqService";
 import { transcribeAudio } from "../../hooks/services/groqAudioService";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
+import { useConversationMode, type EndReason } from "../../hooks/useConversationMode";
 import { handleReminderRequest, type Reminder } from "../../logic/doo/reminders";
 
 type MessageType = {
@@ -20,13 +21,14 @@ type ChatBubbleProps = {
   emotion: Emotion;
   setEmotion: React.Dispatch<React.SetStateAction<Emotion>>;
   setIsTalking: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsListening: React.Dispatch<React.SetStateAction<boolean>>;
   reminderQueue: Reminder[];
   onReminderShown: (id: string) => void;
 };
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [], facts: [] };
 
-// to clean up text for speech synthesis
+// to clean up text for speech synthesis, removing emojis and extra whitespace
 function cleanForSpeech(text: string): string {
   return text
     .replace(
@@ -77,29 +79,53 @@ function StopIcon() {
   );
 }
 
+function WaveIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="4" y1="10" x2="4" y2="14" />
+      <line x1="8" y1="6" x2="8" y2="18" />
+      <line x1="12" y1="3" x2="12" y2="21" />
+      <line x1="16" y1="7" x2="16" y2="17" />
+      <line x1="20" y1="10" x2="20" y2="14" />
+    </svg>
+  );
+}
+
 let hasGreetedThisLaunch = false;
 
 function ChatBubble({
   emotion,
   setEmotion,
   setIsTalking,
+  setIsListening,
   reminderQueue,
   onReminderShown,
 }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [handsFree, setHandsFree] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const handledRemindersRef = useRef<Set<string>>(new Set());
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
-  const [keyInput, setKeyInput] = useState(""); // to hold the API key input from the user
-  const [keyError, setKeyError] = useState<string | null>(null);
 
- 
-  // to keep track of the current memory state without triggering re-renders
+
+  // to keep the live copy of memory current and save to disk
   const memoryRef = useRef<DooMemory>(FRESH_MEMORY);
 
   const [messages, setMessages] = useState<MessageType[]>([
@@ -107,13 +133,13 @@ function ChatBubble({
   ]);
   const [context, setContext] = useState<DooContext>({ lastMessages: [], messageCount: 0 });
 
-  // to update the memory and save it to localStorage
+  // Single place that updates memory keeps the live copy current and saves to disk
   const applyMemory = (next: DooMemory) => {
     memoryRef.current = next;
     void saveMemory(next);
   };
 
-  // to speak text out loud using the browser's speech synthesis API
+  // speaks text aloud syncing the mouth to real speech
   const speak = (text: string) => {
     const spokenText = cleanForSpeech(text);
     if (!spokenText) return;
@@ -126,20 +152,33 @@ function ChatBubble({
     utterance.rate = 1.05;
     utterance.pitch = 1.1;
 
-    currentUtteranceRef.current = utterance;
-    
-    const stopTalking = () => {     // when speech ends or errors stop talking
-      if (currentUtteranceRef.current === utterance) setIsTalking(false);
+    currentUtteranceRef.current = utterance; 
+
+    setIsSpeaking(true);// set speaking state to true when speech starts
+
+
+    // reacts only if the utterance is still the current one 
+    const stopTalking = () => {
+      if (currentUtteranceRef.current === utterance) {
+        setIsTalking(false);
+        setIsSpeaking(false);
+      }
     };
     utterance.onstart = () => setIsTalking(true);
     utterance.onend = stopTalking;
     utterance.onerror = stopTalking;
     window.speechSynthesis.speak(utterance);
+
+    // safety net
+    setTimeout(stopTalking, Math.min(60000, 4000 + spokenText.length * 120));
   };
 
   const handleClearChat = () => {
-    window.speechSynthesis.cancel();  // stop any speech
+    // stop any speech that's still playing
+    window.speechSynthesis.cancel();
+    currentUtteranceRef.current = null;
     setIsTalking(false);
+    setIsSpeaking(false);
     setEmotion("neutral");
 
     const name = memoryRef.current.userName;
@@ -148,7 +187,7 @@ function ChatBubble({
     ]);
     setContext({ lastMessages: [], messageCount: 0 });
 
-    // wipe the saved conversation but it keeps the name and learned facts
+    // wipe the saved conversation but keeps the name and learned facts
     applyMemory({ ...memoryRef.current, history: [] });
   };
 
@@ -169,7 +208,7 @@ function ChatBubble({
       }));
 
       if (restored.length > 0) {
-        // Only greet once per app launch
+        // Only greet once per app launch not on every popup open
         if (loaded.userName && !hasGreetedThisLaunch) {
           restored.push({
             text: `Hey ${loaded.userName}, I'm back. Miss me?`,
@@ -198,7 +237,15 @@ function ChatBubble({
     return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoice);
   }, []);
 
-  // When a reminder comes due it shows it in the chat say it out loud then save it to history
+  // only the desktop can check for a saved key
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    invoke<boolean>("has_api_key")
+      .then(setHasKey)
+      .catch(() => setHasKey(null));
+  }, []);
+
+  // When a reminder comes due it shows it in the chat says it out loud saves it to history
   useEffect(() => {
     if (!memoryReady || reminderQueue.length === 0) return;
 
@@ -222,7 +269,7 @@ function ChatBubble({
 
     onReminderShown(reminder.id);
 
-  }, [reminderQueue, memoryReady]);
+  }, [reminderQueue, memoryReady]); // run whenever the reminder queue changes or memory is ready
 
   const handleSend = async (overrideText?: string) => {
     const userText = overrideText ?? input;
@@ -241,7 +288,7 @@ function ChatBubble({
 
     const before = memoryRef.current;
 
-    // to handle a reminder request
+    // "remind me." messages are handled here
     const reminderReply = await handleReminderRequest(userText);
     const result: { response: string; emotion: Emotion } = reminderReply
       ? { response: reminderReply, emotion: "playful" }
@@ -254,7 +301,7 @@ function ChatBubble({
 
     speak(result.response);
 
-    // Save the new exchange right away 
+    // save the new exchange right away (re-reading the latest memory)
     const latest = memoryRef.current;
     applyMemory({
       ...latest,
@@ -266,7 +313,7 @@ function ChatBubble({
       ],
     });
 
-    // Learn lasting facts in the background so replies aren't slowed down
+    // learn lasting facts in the background so replies aren't slowed down
     void extractFacts(userText, memoryRef.current.facts).then((newFacts) => {
       if (!newFacts) return;
       console.info("Doo facts updated:", newFacts);
@@ -274,46 +321,71 @@ function ChatBubble({
     });
   };
 
-  const handleRecordingComplete = async (blob: Blob) => {
+
+  // One-message recording (click to start, click to stop)
+  const handleRecordingComplete = async (blob: Blob): Promise<boolean> => {
     setIsTranscribing(true);
     const text = await transcribeAudio(blob);
     setIsTranscribing(false);
     if (text) {
       void handleSend(text);
+      return true;
+    }
+    return false;
+  };
+
+  const handleConversationEnd = (reason: EndReason) => {
+    setHandsFree(false);
+    if (reason === "mic-error") {
+      setMessages((prev) => [
+        ...prev,
+        {
+          text: "I can't reach your microphone. Check that it's allowed and not in use by another app.",
+          sender: "ai",
+        },
+      ]);
     }
   };
 
+  const handleSaveKey = async () => {
+    setKeyError(null);
+    try {
+      await invoke("set_api_key", { key: keyInput });
+      setKeyInput("");
+      setHasKey(true);
+      setMessages((prev) => [
+        ...prev,
+        { text: "Key saved. I'm properly awake now.", sender: "ai" },
+      ]);
+    } catch (err) {
+      setKeyError(String(err));
+    }
+  };
+
+  // One-message recording (click to start, click to stop)
   const { isRecording, toggleRecording } = useVoiceRecorder(handleRecordingComplete);
+
+  // Hands-free conversation mode (wait for speech, then for silence)
+  const { phase } = useConversationMode({
+    active: handsFree,
+    paused: isTyping || isTranscribing || isSpeaking,
+    onUtterance: handleRecordingComplete,
+    onEnd: handleConversationEnd,
+  });
+
+  // Let the character know when Doo is listening (it tilts its head and widens its eyes)
+  useEffect(() => {
+    setIsListening(isRecording || phase !== "off");
+  }, [isRecording, phase, setIsListening]);
+  useEffect(() => () => setIsListening(false), [setIsListening]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping, isRecording, isTranscribing]);
+  }, [messages, isTyping, isRecording, isTranscribing, phase]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSend();
   };
-
-  // Check if the API key is set in the backend when the component mounts
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return; // browser demo, no backend
-    invoke<boolean>("has_api_key")
-     .then(setHasKey)
-      .catch(() => setHasKey(null));
-              }, []);
-
-
-  // to handle saving the API key
-  const handleSaveKey = async () => {
-  setKeyError(null);
-  try {
-    await invoke("set_api_key", { key: keyInput });
-    setKeyInput("");
-    setHasKey(true);
-    setMessages((prev) => [...prev, { text: "Key saved. I'm properly awake now.", sender: "ai" }]);
-  } catch (err) {
-    setKeyError(String(err));
-  }
-};            
 
   return (
     <div className="chat-bubble">
@@ -327,6 +399,18 @@ function ChatBubble({
         {isRecording && (
           <div className="typing">
             Listening <span className="dots"></span>
+          </div>
+        )}
+
+        {phase === "waiting" && (
+          <div className="typing">
+            Listening, go ahead <span className="dots"></span>
+          </div>
+        )}
+
+        {phase === "hearing" && (
+          <div className="typing">
+            Hearing you <span className="dots"></span>
           </div>
         )}
 
@@ -345,33 +429,47 @@ function ChatBubble({
         <div ref={messagesEndRef} />
       </div>
 
-    {/* API Key Banner */}
-    {hasKey === false && (
-  <div className="key-banner">
-      <p>I'm on basic canned replies. Paste a free Groq key (from console.groq.com) to unlock the real me.</p>
-      <div className="key-row">
-        <input
-          type="password"
-          value={keyInput}
-          onChange={(e) => setKeyInput(e.target.value)}
-          placeholder="gsk_..."
-           />
-           <button type="button" onClick={handleSaveKey}>Save</button>
-         </div>
+      {hasKey === false && (
+        <div className="key-banner">
+          <p>
+            I'm on basic canned replies. Paste a free Groq key (from console.groq.com) to
+            unlock the real me.
+          </p>
+          <div className="key-row">
+            <input
+              type="password"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              placeholder="gsk_..."
+            />
+            <button type="button" onClick={handleSaveKey}>
+              Save
+            </button>
+          </div>
           {keyError && <p className="key-error">{keyError}</p>}
-       </div>
-              )}
-
+        </div>
+      )}
 
       <div className="input-container">
         <button
           type="button"
           onClick={toggleRecording}
+          disabled={handsFree}
           className={`mic-button ${isRecording ? "recording" : ""}`}
           title={isRecording ? "Stop recording" : "Record a message"}
           aria-label={isRecording ? "Stop recording" : "Record a message"}
         >
           {isRecording ? <StopIcon /> : <MicIcon />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setHandsFree((on) => !on)}
+          disabled={isRecording}
+          className={`mic-button ${handsFree ? "handsfree" : ""}`}
+          title={handsFree ? "End hands-free conversation" : "Start a hands-free conversation"}
+          aria-label={handsFree ? "End hands-free conversation" : "Start a hands-free conversation"}
+        >
+          <WaveIcon />
         </button>
         <input
           value={input}
