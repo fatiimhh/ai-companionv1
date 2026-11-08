@@ -6,6 +6,7 @@ import type { Emotion } from "../../logic/doo/types";
 type Props = {
   emotion: Emotion;
   isTalking?: boolean;
+  isListening?: boolean;
 };
 
 const EMOTION_COLOR: Record<Emotion, string> = {
@@ -31,7 +32,7 @@ const EYE_OPENNESS: Record<Emotion, number> = {
 
 const REACTION_DURATION = 0.5; 
 
-function DooCharacter({ emotion, isTalking = false }: Props) {
+function DooCharacter({ emotion, isTalking = false, isListening = false}: Props) {
   const groupRef = useRef<Group>(null);
   const leftEyeRef = useRef<Mesh>(null);
   const rightEyeRef = useRef<Mesh>(null);
@@ -96,12 +97,18 @@ function DooCharacter({ emotion, isTalking = false }: Props) {
     }
 
     group.position.y = idleBob + reactionOffsetY;
+    // its head tilt while listening
+    const targetTilt = isListening ? 0.14 : 0;
+    group.rotation.z += (targetTilt - group.rotation.z) * 0.1;
+
     group.scale.setScalar(scaleRef.current * reactionScaleBoost);
 
     // antenna tip gentle pulsing glow
     if (antennaTipRef.current) {
-      const glowPulse = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.1;
-      antennaTipRef.current.scale.setScalar(glowPulse);
+    const glowSpeed = isListening ? 8 : 3;
+    const glowSize = isListening ? 0.25 : 0.1;
+    const glowPulse = 1 + Math.sin(state.clock.elapsedTime * glowSpeed) * glowSize;    
+    antennaTipRef.current.scale.setScalar(glowPulse);
     }
 
     //Blinking
@@ -123,8 +130,8 @@ function DooCharacter({ emotion, isTalking = false }: Props) {
         : (1 - blinkProgressRef.current) * 2;
 
     const baseOpenness = EYE_OPENNESS[emotion];
-    const currentOpenness = baseOpenness * (1 - blinkAmount * 0.9);
-
+    const currentOpenness = baseOpenness * (isListening ? 1.2 : 1) * (1 - blinkAmount * 0.9);
+    
     if (leftEyeRef.current) leftEyeRef.current.scale.y = currentOpenness;
     if (rightEyeRef.current) rightEyeRef.current.scale.y = currentOpenness;
 
@@ -181,13 +188,13 @@ function DooCharacter({ emotion, isTalking = false }: Props) {
   );
 }
 
-export default function Character3D({ emotion, isTalking = false }: Props) {
+export default function Character3D({ emotion, isTalking = false, isListening = false }: Props) {
   return (
     <div style={{ width: "200px", height: "200px" }}>
       <Canvas camera={{ position: [0, 0, 3] }}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[2, 2, 2]} intensity={1} />
-        <DooCharacter emotion={emotion} isTalking={isTalking} />
+        <DooCharacter emotion={emotion} isTalking={isTalking} isListening={isListening} />
       </Canvas>
     </div>
   );
