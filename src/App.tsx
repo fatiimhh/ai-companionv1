@@ -9,31 +9,44 @@ function App() {
   const [showBubble, setShowBubble] = useState(false);
   const [emotion, setEmotion] = useState<Emotion>("neutral");
   const [isTalking, setIsTalking] = useState(false);
-  const [reminderQueue, setReminderQueue] = useState<Reminder[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [reminderQueue, setReminderQueue] = useState<Reminder[]>([]);
+  const [pendingSummon, setPendingSummon] = useState(false);
 
-
-// Listen for reminders from the Rust backend and add them to the queue
+  // Listen for events from the backend (Tauri) and update state accordingly
   useEffect(() => {
-    
-    if (!("__TAURI_INTERNALS__" in window)) return; // only listen for reminders if running in Tauri
+
+    if (!("__TAURI_INTERNALS__" in window)) return;
 
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
+    const unlisteners: Array<() => void> = [];
 
-    listen<Reminder>("reminder-due", (event) => {
-      setReminderQueue((queue) => [...queue, event.payload]);
-      setShowBubble(true);
-    })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch((err) => console.warn("Could not listen for reminders:", err));
+    const register = async () => {
+      try {
+        const offReminder = await listen<Reminder>("reminder-due", (event) => {
+          setReminderQueue((queue) => [...queue, event.payload]);
+          setShowBubble(true);
+        });
+        const offSummon = await listen("summon", () => {
+          setShowBubble(true);
+          setPendingSummon(true);
+        });
+
+        if (cancelled) {
+          offReminder();
+          offSummon();
+        } else {
+          unlisteners.push(offReminder, offSummon);
+        }
+      } catch (err) {
+        console.warn("Could not listen for Doo events:", err);
+      }
+    };
+    void register();
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlisteners.forEach((off) => off());
     };
   }, []);
 
@@ -58,18 +71,18 @@ function App() {
           emotion={emotion}
           setEmotion={setEmotion}
           setIsTalking={setIsTalking}
+          setIsListening={setIsListening}
           reminderQueue={reminderQueue}
           onReminderShown={(id) =>
             setReminderQueue((queue) => queue.filter((r) => r.id !== id))
           }
-          setIsListening={setIsListening}
+          pendingSummon={pendingSummon}
+          onSummonHandled={() => setPendingSummon(false)}
         />
       )}
 
       <div onClick={handleCharacterClick}>
-        <Character3D emotion={emotion} isTalking={isTalking} 
-        isListening={isListening}
-        />
+        <Character3D emotion={emotion} isTalking={isTalking} isListening={isListening} />
       </div>
     </div>
   );
