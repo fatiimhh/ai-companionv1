@@ -3,12 +3,17 @@ use std::path::PathBuf;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
-mod reminders;
-mod groq;
 
-// to store the memory in a file in the app data directory
+mod groq;
+mod reminders;
+
+// The shortcut that wakes Doo from anywhere
+const SUMMON_SHORTCUT: &str = "ctrl+shift+space";
+
+
+
 const MEMORY_FILE: &str = "doo-memory.json";
 const EMPTY_MEMORY: &str = r#"{"userName":null,"history":[],"facts":[]}"#;
 
@@ -45,7 +50,7 @@ fn clear_memory(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// Show the main window, unminimized and focused, if it exists
+// Brings the main window back from the tray or from being minimized
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -54,13 +59,18 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+// Shows Doo and tells the frontend to open the chat and start listening
+fn summon(app: &tauri::AppHandle) {
+    show_main_window(app);
+    let _ = app.emit("summon", ());
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-        tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(reminders::ReminderLock(std::sync::Mutex::new(())))
         .setup(|app| {
-
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -69,22 +79,47 @@ pub fn run() {
                 )?;
             }
 
-            //  System tray, let it keep running with its window hidden 
+            // Global hotkey summon Doo from any app 
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(|app, _shortcut, event| {
+                            if event.state() == ShortcutState::Pressed {
+                                summon(app);
+                            }
+                        })
+                        .build(),
+                )?;
+
+                
+
+                if let Err(err) = app.global_shortcut().register(SUMMON_SHORTCUT) {
+                    log::warn!("could not register the summon shortcut {SUMMON_SHORTCUT}: {err}");
+                }
+            }
+
+            //lets Doo keep running with its window hidden 
+            let talk_item = MenuItem::with_id(app, "talk", "Talk to Doo", true, None::<&str>)?;
             let show_item = MenuItem::with_id(app, "show", "Show Doo", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit Doo", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&talk_item, &show_item, &quit_item])?;
 
             let mut tray = TrayIconBuilder::new()
                 .tooltip("Doo")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "talk" => summon(app),
                     "show" => show_main_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // Left-click the tray icon to bring Doo back
+                    
+                    // left click the tray icon shows the main window
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -98,14 +133,14 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
-                        tray.build(app)?;
+            tray.build(app)?;
 
-            reminders::start_scheduler(app.handle().clone()); // start the background thread that checks for due reminders every 5 seconds
+            reminders::start_scheduler(app.handle().clone());
 
             Ok(())
         })
-      
-        //  Prevent closing the window, instead hide it to the tray 
+        
+
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -124,6 +159,6 @@ pub fn run() {
             groq::groq_chat,
             groq::groq_transcribe
         ])
-                .run(tauri::generate_context!())
+        .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
