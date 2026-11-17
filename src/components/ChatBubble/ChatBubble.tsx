@@ -24,6 +24,9 @@ type ChatBubbleProps = {
   setIsListening: React.Dispatch<React.SetStateAction<boolean>>;
   reminderQueue: Reminder[];
   onReminderShown: (id: string) => void;
+
+  pendingSummon: boolean;
+  onSummonHandled: () => void;
 };
 
 const FRESH_MEMORY: DooMemory = { userName: null, history: [], facts: [] };
@@ -109,6 +112,8 @@ function ChatBubble({
   setIsListening,
   reminderQueue,
   onReminderShown,
+  pendingSummon,
+  onSummonHandled,
 }: ChatBubbleProps) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -377,7 +382,23 @@ function ChatBubble({
   useEffect(() => {
     setIsListening(isRecording || phase !== "off");
   }, [isRecording, phase, setIsListening]);
+
   useEffect(() => () => setIsListening(false), [setIsListening]);
+
+
+  // to handle a summon event from the Tauri when the hotkey is pressed or the tray menu clicked
+  useEffect(() => {
+    if (!pendingSummon) return;
+    window.speechSynthesis.cancel();
+    currentUtteranceRef.current = null;
+    setIsTalking(false);
+    setIsSpeaking(false);
+    setHandsFree(true);
+    onSummonHandled();
+    
+  }, [pendingSummon]);
+
+
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
