@@ -11,6 +11,10 @@ import { transcribeAudio } from "../../hooks/services/groqAudioService";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import { useConversationMode, type EndReason } from "../../hooks/useConversationMode";
 import { handleReminderRequest, type Reminder } from "../../logic/doo/reminders";
+import { speakNatural, stopNaturalSpeech } from "../../logic/doo/speech";
+import { mouth } from "../../logic/doo/mouthLevel";
+
+
 
 type MessageType = {
   text: string;
@@ -128,7 +132,8 @@ function ChatBubble({
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const handledRemindersRef = useRef<Set<string>>(new Set());
-
+  const speakTokenRef = useRef(0); 
+  const warnedAboutTermsRef = useRef(false); 
 
   // to keep the live copy of memory current and save to disk
   const memoryRef = useRef<DooMemory>(FRESH_MEMORY);
@@ -144,47 +149,87 @@ function ChatBubble({
     void saveMemory(next);
   };
 
-  // speaks text aloud syncing the mouth to real speech
-  const speak = (text: string) => {
-    const spokenText = cleanForSpeech(text);
-    if (!spokenText) return;
-
-    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-      window.speechSynthesis.cancel();
-    }
+   // Fallback voice: the browser's built-in speech
+  const speakWithBrowserVoice = (spokenText: string, token: number) => {
+    mouth.active = false; 
     const utterance = new SpeechSynthesisUtterance(spokenText);
     if (voiceRef.current) utterance.voice = voiceRef.current;
     utterance.rate = 1.05;
     utterance.pitch = 1.1;
+    currentUtteranceRef.current = utterance;
 
-    currentUtteranceRef.current = utterance; 
-
-    setIsSpeaking(true);// set speaking state to true when speech starts
-
-
-    // reacts only if the utterance is still the current one 
-    const stopTalking = () => {
-      if (currentUtteranceRef.current === utterance) {
+    const stop = () => {
+      if (speakTokenRef.current === token) {
         setIsTalking(false);
         setIsSpeaking(false);
       }
     };
-    utterance.onstart = () => setIsTalking(true);
-    utterance.onend = stopTalking;
-    utterance.onerror = stopTalking;
+    utterance.onstart = () => {
+      if (speakTokenRef.current === token) setIsTalking(true);
+    };
+    utterance.onend = stop;
+    utterance.onerror = stop;
     window.speechSynthesis.speak(utterance);
-
-    // safety net
-    setTimeout(stopTalking, Math.min(60000, 4000 + spokenText.length * 120));
   };
 
-  const handleClearChat = () => {
-    // stop any speech that's still playing
+  const stopAllSpeech = () => {
+    speakTokenRef.current += 1; 
+    stopNaturalSpeech();
     window.speechSynthesis.cancel();
     currentUtteranceRef.current = null;
     setIsTalking(false);
     setIsSpeaking(false);
-    setEmotion("neutral");
+  };
+
+  // speaks text aloud natural Groq voice first, browser voice as a fallback
+  const speak = (text: string) => {
+    const spokenText = cleanForSpeech(text);
+    if (!spokenText) return;
+
+    stopAllSpeech(); // stop any speech that's still playing
+    const token = speakTokenRef.current;
+
+    setIsSpeaking(true);
+
+    const stillCurrent = () => speakTokenRef.current === token;
+    const finish = () => {
+      if (stillCurrent()) {
+        setIsTalking(false);
+        setIsSpeaking(false);
+      }
+    };
+
+    void speakNatural(spokenText, {
+      onStart: () => {
+        if (stillCurrent()) setIsTalking(true);
+      },
+      onEnd: finish,
+    }).then(({ ok, error }) => {
+      if (ok || !stillCurrent()) return;
+
+      if (error && /terms/i.test(error) && !warnedAboutTermsRef.current) {
+        warnedAboutTermsRef.current = true;
+        setMessages((prev) => [
+          ...prev,
+          {
+            text: "To use my natural voice, accept the Orpheus model terms in the Groq console. Until then I'll use the basic voice.",
+            sender: "ai",
+          },
+        ]);
+      }
+      speakWithBrowserVoice(spokenText, token);
+    });
+
+  // safety net in case the natural voice never calls onEnd
+    setTimeout(finish, Math.min(90000, 10000 + spokenText.length * 150));
+  };
+
+
+
+  const handleClearChat = () => {
+    // stop any speech that's still playing
+        stopAllSpeech();
+        setEmotion("neutral");
 
     const name = memoryRef.current.userName;
     setMessages([
@@ -293,7 +338,7 @@ function ChatBubble({
 
     const before = memoryRef.current;
 
-    // "remind me." messages are handled here
+    // "remind me" messages are handled here
     const reminderReply = await handleReminderRequest(userText);
     const result: { response: string; emotion: Emotion } = reminderReply
       ? { response: reminderReply, emotion: "playful" }
@@ -389,10 +434,7 @@ function ChatBubble({
   // to handle a summon event from the Tauri when the hotkey is pressed or the tray menu clicked
   useEffect(() => {
     if (!pendingSummon) return;
-    window.speechSynthesis.cancel();
-    currentUtteranceRef.current = null;
-    setIsTalking(false);
-    setIsSpeaking(false);
+    stopAllSpeech();
     setHandsFree(true);
     onSummonHandled();
     
