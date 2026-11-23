@@ -5,7 +5,7 @@ type MessageProps = {
 
 function Message({ text, sender }: MessageProps) {
   return (
-    <div className={`message ${sender}`}>
+    <div className={`message ${sender}`} dir="auto">
       {text}
     </div>
   );
