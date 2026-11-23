@@ -2,6 +2,8 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useRef, useEffect } from "react";
 import type { Group, Mesh } from "three";
 import type { Emotion } from "../../logic/doo/types";
+import { mouth } from "../../logic/doo/mouthLevel";
+
 
 type Props = {
   emotion: Emotion;
@@ -135,10 +137,16 @@ function DooCharacter({ emotion, isTalking = false, isListening = false}: Props)
     if (leftEyeRef.current) leftEyeRef.current.scale.y = currentOpenness;
     if (rightEyeRef.current) rightEyeRef.current.scale.y = currentOpenness;
 
+
     // Mouth
-    if (mouthRef.current) {
-      if (isTalking) {
-        talkTimerRef.current += delta * 10;
+        if (mouthRef.current) {
+      if (isTalking && mouth.active) {
+      
+        const target = 0.25 + mouth.level * 1.1; // scale mouth based on mouth level
+        mouthRef.current.scale.y += (target - mouthRef.current.scale.y) * 0.5;
+      } else if (isTalking) {
+
+        talkTimerRef.current += delta * 10; // speed up the timer for more frequent mouth movement
         const talkOpen = 0.3 + Math.abs(Math.sin(talkTimerRef.current)) * 0.7;
         mouthRef.current.scale.y = talkOpen;
       } else {
