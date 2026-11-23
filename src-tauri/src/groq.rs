@@ -9,6 +9,12 @@ const TRANSCRIBE_URL: &str = "https://api.groq.com/openai/v1/audio/transcription
 const TRANSCRIBE_MODEL: &str = "whisper-large-v3-turbo";
 const NO_KEY: &str = "NO_API_KEY";
 
+const SPEECH_URL: &str = "https://api.groq.com/openai/v1/audio/speech";
+const ALLOWED_TTS_MODELS: [&str; 2] = [
+    "canopylabs/orpheus-v1-english",
+    "canopylabs/orpheus-arabic-saudi",
+];
+
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -134,4 +140,48 @@ pub async fn groq_transcribe(app: AppHandle, audio: Vec<u8>, mime: String) -> Re
         return Err(format!("Groq returned {status}: {text}"));
     }
     Ok(text)
+}
+
+
+// makes a text-to-speech request to Groq and returns the raw audio response
+
+#[tauri::command]
+pub async fn groq_speak(
+    app: AppHandle,
+    text: String,
+    model: String,
+    voice: String,
+) -> Result<tauri::ipc::Response, String> {
+    if !ALLOWED_TTS_MODELS.contains(&model.as_str()) {
+        return Err("unsupported voice model".to_string());
+    }
+    let key = resolve_key(&app).ok_or_else(|| NO_KEY.to_string())?;
+
+    let body = serde_json::json!({
+        "model": model,
+        "input": text,
+        "voice": voice,
+        "response_format": "wav",
+    });
+
+    let response = http_client()?
+        .post(SPEECH_URL)
+        .bearer_auth(key)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("Groq returned {status}: {text}"));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("could not read audio: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
 }
