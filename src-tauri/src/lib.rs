@@ -157,7 +157,8 @@ pub fn run() {
             groq::has_api_key,
             groq::set_api_key,
             groq::groq_chat,
-            groq::groq_transcribe
+            groq::groq_transcribe,
+            groq::groq_speak
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
